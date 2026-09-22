@@ -6,7 +6,6 @@ The project is designed around a central OBD adapter that reads vehicle data and
 
 The current display firmware uses simulated values while the **ESP-NOW communication layer is being implemented**. The intended architecture allows multiple display modules to receive data from the same OBD adapter without requiring a separate OBD connection for every display.
 
----
 
 ## Overview
 
@@ -38,7 +37,6 @@ The display UI currently contains three values:
 
 The simulated values are used during UI development. They can later be replaced by the corresponding values received through ESP-NOW.
 
----
 
 # Hardware
 
@@ -61,7 +59,6 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 
 The exact hardware required may vary depending on how the display is mounted and powered in the vehicle.
 
----
 
 ## Display Module Build
 
@@ -75,39 +72,32 @@ The exact hardware required may vary depending on how the display is mounted and
 
 The display firmware is currently designed around a **240 × 240 pixel** display area.
 
----
-
 # OBD Adapter
 
 ## Hardware
 
 <!-- TODO: Add OBD adapter hardware information -->
 
----
 
 ## BOM
 
 <!-- TODO: Add OBD adapter BOM -->
 
----
 
 ## Build
 
 <!-- TODO: Add OBD adapter build instructions -->
 
----
 
 ## Software
 
 <!-- TODO: Add OBD adapter software information -->
 
----
 
 ## OBD Data Processing
 
 <!-- TODO: Add information about OBD-II communication, PID requests and response parsing -->
 
----
 
 ## ESP-NOW
 
@@ -115,7 +105,6 @@ The OBD adapter will act as the wireless data source for the display modules.
 
 After obtaining the required vehicle parameters, the adapter will package the data and transmit it using **ESP-NOW**.
 
----
 
 # Software
 
@@ -142,7 +131,6 @@ Two sprites are used:
 
 Sprites allow the dashboard to be rendered off-screen before being pushed to the physical display. This reduces visible drawing artifacts during animation.
 
----
 
 ## Dashboard Rendering
 
@@ -172,7 +160,6 @@ Temperature      85 px
 Fuel             65 px
 ```
 
----
 
 ## Icons
 
@@ -192,7 +179,6 @@ bitmaps.h
 
 The icons are rendered directly into the main sprite.
 
----
 
 ## Boot Animation
 
@@ -220,7 +206,6 @@ Black screen
 Dashboard initialization
 ```
 
----
 
 ## UI Startup Animation
 
@@ -272,7 +257,6 @@ This prevents the dashboard from suddenly jumping from the animation to the live
 
 Once the startup sequence is complete, the dashboard continuously displays the current values.
 
----
 
 ## Simulation
 
@@ -298,7 +282,6 @@ The simulation is intended for UI development and testing.
 
 Once ESP-NOW communication is fully integrated, these values will be replaced with data received from the OBD adapter.
 
----
 
 ## FreeRTOS
 
@@ -350,7 +333,6 @@ Its current responsibility is generating simulated vehicle data.
 
 In the final implementation, this task can be used for processing incoming ESP-NOW data and updating the display values.
 
----
 
 # Dependencies
 
@@ -393,7 +375,6 @@ This file contains the graphical assets used by the interface, including:
 * Temperature icon
 * Fuel icon
 
----
 
 # Settings
 
@@ -427,7 +408,6 @@ tft.setSwapBytes(true);
 
 The exact TFT_eSPI setup depends on the TFT_eSPI version and the Waveshare board configuration being used.
 
----
 
 ## ESP-NOW Settings
 
@@ -457,7 +437,6 @@ The planned communication architecture is:
 
 The OBD adapter acts as the transmitter/source while the display modules act as receivers.
 
----
 
 # Expansion
 
@@ -504,7 +483,6 @@ This architecture provides several benefits:
 * Additional displays can be added without adding additional OBD adapters.
 * The OBD adapter can act as a central vehicle-data gateway.
 
----
 
 ## ESP-NOW Network
 
@@ -553,7 +531,6 @@ Fuel consumption
 
 This makes the system scalable without requiring changes to the OBD connection itself.
 
----
 
 # Project Structure
 
@@ -576,7 +553,6 @@ The `Display` directory contains the firmware for the Waveshare ESP32-S3 display
 
 The `OBD-Adapter` directory will contain the OBD adapter firmware and related code.
 
----
 
 # Development Status
 
@@ -594,7 +570,6 @@ The `OBD-Adapter` directory will contain the OBD adapter firmware and related co
 | ESP-NOW transmission     | In development           |
 | Multiple display support | Planned / in development |
 
----
 
 # License
 
