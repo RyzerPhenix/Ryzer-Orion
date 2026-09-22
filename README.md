@@ -49,6 +49,7 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 | Component                                                                           | Quantity | Description                                         |
 | ----------------------------------------------------------------------------------- | -------: | --------------------------------------------------- |
 | [Waveshare ESP32-S3 Round Display](https://www.waveshare.com/esp32-s3-lcd-1.28.htm) |        1 | Main display/microcontroller                        |
+| 3D-Printed Case                                                                     |        1 | Case                                                |
 | USB-C cable                                                                         |        1 | Programming and power                               |
 | Computer                                                                            |        1 | Arduino IDE                                         |
 
@@ -64,6 +65,8 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
   - Go to Sketch --> Include Library --> Add .ZIP Library... and select the library to include.
 8. Compile and upload the firmware:
   - Board: ESP32S3 Dev Module
+  - Set Flash Parameters:
+  - ![Flash Parameters]()
   - Port: Select your COM-Port
 9. Power the display from a suitable USB or automotive power source for vehicle installation.
 
@@ -76,6 +79,7 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 | ---------------------------------------------------------------------- | -------: | --------------------------------------------------- |
 | [ESP32 CAN Bus Shield](https://store.mrdiy.ca/p/esp32-can-bus-shield/) |        1 | OBD2 ESP32 carrier board                            |
 | ESP32 DevKit V1 (!ONLY V1 WORKS)                                       |        1 | Microcontroller                                     |
+| 3D-Printed Case                                                        |        1 | Case                                                |
 | USB-C cable                                                            |        1 | Programming and power                               |
 | Computer                                                               |        1 | Arduino IDE                                         |
 
