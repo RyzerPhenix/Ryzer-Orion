@@ -77,14 +77,19 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 
 #### BOM
 
-| Component                                                              | Quantity | Description                                         |
+| Component                                                                         | Quantity | Description                                         |
 | ---------------------------------------------------------------------- | -------: | --------------------------------------------------- |
-| [ESP32 CAN Bus Shield](https://store.mrdiy.ca/p/esp32-can-bus-shield/) |        1 | OBD2 ESP32 carrier board                            |
-| ESP32 DevKit V1 (!ONLY V1 WORKS)                                       |        1 | Microcontroller                                     |
-| 3D-Printed Case                                                        |        1 | Case                                                |
-| USB-C cable                                                            |        1 | Programming and power                               |
-| Computer                                                               |        1 | Arduino IDE                                         |
+| [MrDIY ESP32 CAN Bus Shield](https://store.mrdiy.ca/p/esp32-can-bus-shield/)      |        1 | OBD2 ESP32 carrier board                            |
+| ESP32 DevKit V1 (ONLY V1 WORKS!)                                                  |        1 | Microcontroller                                     |
+| 3D-Printed Case                                                                   |        1 | Case                                                |
+| USB-C cable                                                                       |        1 | Programming and power                               |
+| Computer                                                                          |        1 | Arduino IDE                                         |
 
 #### Build
+1. Assamble the OBD2 Adapter according to [MrDIYs Website](https://store.mrdiy.ca/p/esp32-can-bus-shield/).
+2. Install the [EPS32_CAN library by collin80](https://github.com/collin80/esp32_can).
+3. Compile and upload the firmware:
+  - Board: ESP32S3 Dev Module
+  - Port: Select your COM-Port
 
 ## Software
