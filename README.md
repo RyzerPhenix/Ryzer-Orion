@@ -66,7 +66,7 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 8. Compile and upload the firmware:
   - Board: ESP32S3 Dev Module
   - Set Flash Parameters:
-  - ![Flash Parameters](https://github.com/RyzerPhenix/Ryzer-Orion/blob/main/Pictures/Waveshare_ESP32-S3-LCD-128_Arduino_IDE_settings.png)
+    ![Flash Parameters](https://github.com/RyzerPhenix/Ryzer-Orion/blob/main/Pictures/Waveshare_ESP32-S3-LCD-128_Arduino_IDE_settings.png)
   - Port: Select your COM-Port
 9. Power the display from a suitable USB or automotive power source for vehicle installation.
 
