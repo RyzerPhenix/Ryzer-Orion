@@ -20,7 +20,6 @@ The project consists of two main components:
 
 2. **Display Modules**
 
-   * Based on the Waveshare ESP32-S3 Round Display.
    * Receive live vehicle data wirelessly from the OBD adapter.
    * Display the data using an animated circular dashboard.
    * Multiple displays can receive data from the same OBD adapter.
@@ -32,7 +31,7 @@ The display UI can display 3 Data Values at once. In the example those are:
 | Parameter           | Display   | Source                            |
 | ------------------- | --------- | --------------------------------- |
 | Mass Air Flow       | `g/s`     | OBD-II                            |
-| Coolant Temperature | `°C`      | OBD-II                            |
+| Oil Temperature     | `°C`      | OBD-II                            |
 | Fuel Consumption    | `L/100km` | Calculated from live vehicle data |
 
 The values displayed by the dashboard are received from the OBD adapter through ESP-NOW.
@@ -47,11 +46,11 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 
 #### BOM
 
-| Component                        | Quantity | Description                                         |
-| -------------------------------- | -------: | --------------------------------------------------- |
-| Waveshare ESP32-S3 Round Display |        1 | Main display/microcontroller                        |
-| USB-C cable                      |        1 | Programming and power                               |
-| Computer                         |        1 | Arduino IDE                                         |
+| Component                                                                           | Quantity | Description                                         |
+| ----------------------------------------------------------------------------------- | -------: | --------------------------------------------------- |
+| [Waveshare ESP32-S3 Round Display](https://www.waveshare.com/esp32-s3-lcd-1.28.htm) |        1 | Main display/microcontroller                        |
+| USB-C cable                                                                         |        1 | Programming and power                               |
+| Computer                                                                            |        1 | Arduino IDE                                         |
 
 
 #### Build
@@ -72,6 +71,13 @@ The display provides the circular 240 × 240 pixel interface used by the dashboa
 ### OBD Adapter
 
 #### BOM
+
+| Component                                                              | Quantity | Description                                         |
+| ---------------------------------------------------------------------- | -------: | --------------------------------------------------- |
+| [ESP32 CAN Bus Shield](https://store.mrdiy.ca/p/esp32-can-bus-shield/) |        1 | OBD2 ESP32 carrier board                            |
+| ESP32 DevKit V1 (!ONLY V1 WORKS)                                       |        1 | Microcontroller                                     |
+| USB-C cable                                                            |        1 | Programming and power                               |
+| Computer                                                               |        1 | Arduino IDE                                         |
 
 #### Build
 
