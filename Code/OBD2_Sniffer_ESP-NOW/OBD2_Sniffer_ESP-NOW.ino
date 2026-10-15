@@ -9,7 +9,7 @@
 /*
    ESP-NOW channel.
 
-   Must match the TFT receiver.
+   MUST match the TFT receiver.
 */
 
 #define ESPNOW_CHANNEL 1
@@ -28,6 +28,8 @@ uint8_t receiverMac[] = {
   0x10
 };
 
+
+/* LIVE CAN/OBD MODE: no synthetic/test readings are transmitted. */
 
 /*
    MrDIY CAN Shield v1.3+
@@ -55,21 +57,16 @@ uint8_t receiverMac[] = {
 
 
 /*
-   Standard OBD-II request address.
+   Standard functional OBD-II request address.
 */
 
 #define OBD_REQUEST_ID 0x7DF
 
 
 /*
-   Standard OBD-II response range.
+   Standard OBD-II response range:
 
-   Usually:
-
-   0x7E8
-   0x7E9
-   ...
-   0x7EF
+   0x7E8 - 0x7EF
 */
 
 #define OBD_RESPONSE_MIN 0x7E8
@@ -77,49 +74,53 @@ uint8_t receiverMac[] = {
 
 
 /* =========================================================
-   ESP-NOW DATA
+   OBD PID DEFINITIONS
+   ========================================================= */
+
+#define PID_COOLANT 0x05
+#define PID_RPM 0x0C
+#define PID_SPEED 0x0D
+#define PID_MAF 0x10
+
+
+/* =========================================================
+   SENSOR VALUES
    ========================================================= */
 
 /*
-   All values required by the display.
+   These are the REAL values received from the car.
+*/
 
-   maf:
-      grams / second
+float coolant = 0.0;
+float rpm = 0.0;
+float speed = 0.0;
+float maf = 0.0;
 
-   speed:
-      km/h
 
-   rpm:
-      engine RPM
+/* =========================================================
+   ESP-NOW DATA STRUCTURE
+   ========================================================= */
 
-   coolant:
-      coolant temperature in °C
+/*
+   IMPORTANT:
+
+   The receiver must use the EXACT SAME structure
+   and variable order.
+
+   4 floats = 16 bytes
 */
 
 typedef struct {
 
   float maf;
-
   float speed;
-
   float rpm;
-
   float coolant;
 
 } SensorData;
 
 
 SensorData sensorData;
-
-
-/* =========================================================
-   OBD PID DEFINITIONS
-   ========================================================= */
-
-#define PID_COOLANT 0x05
-#define PID_RPM     0x0C
-#define PID_SPEED   0x0D
-#define PID_MAF     0x10
 
 
 /* =========================================================
@@ -130,19 +131,28 @@ unsigned long lastOBDRequest = 0;
 
 const unsigned long OBD_REQUEST_INTERVAL = 100;
 
+/* =========================================================
+   LIVE TRANSMISSION TIMING AND DATA FRESHNESS
+   ========================================================= */
+const unsigned long ESPNOW_SEND_INTERVAL = 500;
+const unsigned long OBD_STALE_TIMEOUT = 3000;
+const unsigned long STATUS_INTERVAL = 5000;
+unsigned long lastESPNowSend = 0;
+unsigned long lastStatus = 0;
+unsigned long coolantUpdated = 0;
+unsigned long rpmUpdated = 0;
+unsigned long speedUpdated = 0;
+unsigned long mafUpdated = 0;
+unsigned long obdResponseCount = 0;
 
 /*
-   We request the following:
+   PIDs are requested one after another:
 
-   coolant
+   Coolant
    RPM
-   speed
+   Speed
    MAF
-
-   one after another.
 */
-
-uint8_t currentPIDIndex = 0;
 
 const uint8_t pidList[] = {
 
@@ -156,10 +166,17 @@ const uint8_t pidList[] = {
 const uint8_t PID_COUNT =
   sizeof(pidList) / sizeof(pidList[0]);
 
+uint8_t currentPIDIndex = 0;
+
 
 /* =========================================================
    VALID DATA FLAGS
    ========================================================= */
+
+/*
+   These tell us whether the ECU has actually returned
+   each value at least once.
+*/
 
 bool coolantValid = false;
 bool rpmValid = false;
@@ -173,124 +190,128 @@ bool mafValid = false;
 
 void onDataSent(
   const wifi_tx_info_t *info,
-  esp_now_send_status_t status
-) {
+  esp_now_send_status_t status) {
 
   if (status == ESP_NOW_SEND_SUCCESS) {
 
     Serial.println(
-      "ESP-NOW: OK"
-    );
+      "ESP-NOW: DELIVERY OK");
 
-  }
-  else {
+  } else {
 
     Serial.println(
-      "ESP-NOW: FAILED"
-    );
+      "ESP-NOW: DELIVERY FAILED");
   }
 }
 
 
 /* =========================================================
-   SEND SENSOR DATA
+   SEND SENSOR DATA VIA ESP-NOW
    ========================================================= */
 
 void sendSensorData() {
 
+  /* ########################################################
+     ACTUAL LIVE CAN -> ESP-NOW DATA TRANSFER
+
+     These values are populated exclusively by processOBDResponse()
+     after decoding actual ECU replies. NO TEST DATA IS USED.
+
+     The loop calls this function only when ALL four values
+     have been received recently (within OBD_STALE_TIMEOUT).
+     ######################################################## */
+  sensorData.maf = maf;
+  sensorData.speed = speed;
+  sensorData.rpm = rpm;
+  sensorData.coolant = coolant;
+
+  /*
+     =====================================================
+     ACTUAL ESP-NOW SEND COMMAND
+     =====================================================
+
+     THIS LINE ACTUALLY TRANSMITS THE DATA.
+  */
+
   esp_err_t result = esp_now_send(
     receiverMac,
     (uint8_t *)&sensorData,
-    sizeof(sensorData)
-  );
+    sizeof(sensorData));
 
+
+  /*
+     Print exactly what we attempted to send.
+  */
 
   Serial.println();
   Serial.println(
-    "=============================="
-  );
+    "================================");
+
+  Serial.println("ESP-NOW SEND: LIVE CAN/OBD DATA");
 
   Serial.println(
-    "ESP-NOW SENSOR DATA"
-  );
+    "================================");
 
-  Serial.print(
-    "MAF: "
-  );
+
+  Serial.print("MAF:     ");
 
   Serial.print(
     sensorData.maf,
-    2
-  );
+    2);
 
-  Serial.println(
-    " g/s"
-  );
+  Serial.println(" g/s");
 
 
-  Serial.print(
-    "Speed: "
-  );
+  Serial.print("Speed:   ");
 
   Serial.print(
     sensorData.speed,
-    0
-  );
+    0);
 
-  Serial.println(
-    " km/h"
-  );
+  Serial.println(" km/h");
 
 
-  Serial.print(
-    "RPM: "
-  );
+  Serial.print("RPM:     ");
 
   Serial.print(
     sensorData.rpm,
-    0
-  );
+    0);
 
-  Serial.println(
-    " rpm"
-  );
+  Serial.println(" rpm");
 
 
-  Serial.print(
-    "Coolant: "
-  );
+  Serial.print("Coolant: ");
 
   Serial.print(
     sensorData.coolant,
-    0
-  );
+    1);
+
+  Serial.println(" C");
+
 
   Serial.println(
-    " C"
-  );
+    "--------------------------------");
 
 
   if (result == ESP_OK) {
 
     Serial.println(
-      "ESP-NOW packet queued"
-    );
+      "ESP-NOW packet queued.");
 
-  }
-  else {
+  } else {
 
     Serial.print(
-      "ESP-NOW send error: "
-    );
+      "ESP-NOW send error: ");
 
     Serial.println(
-      result
-    );
+      result);
   }
 
+
   Serial.println(
-    "=============================="
-  );
+    "================================");
+
+  Serial.println();
 }
 
 
@@ -298,25 +319,23 @@ void sendSensorData() {
    SEND OBD REQUEST
    ========================================================= */
 
-void requestPID(
-  uint8_t pid
-) {
+void requestPID(uint8_t pid) {
 
   CAN_FRAME frame;
 
+
   /*
-     Clear frame.
+     Clear complete CAN frame.
   */
 
   memset(
     &frame,
     0,
-    sizeof(frame)
-  );
+    sizeof(frame));
 
 
   /*
-     Standard 11-bit OBD request.
+     Standard 11-bit OBD-II request.
   */
 
   frame.id = OBD_REQUEST_ID;
@@ -329,29 +348,16 @@ void requestPID(
 
 
   /*
-     ISO 15765-4 single-frame request:
+     ISO 15765-4 single-frame request.
 
-     Byte 0:
-       Number of following bytes = 2
-
-     Byte 1:
-       Service = 01
-       Show current data
-
-     Byte 2:
-       PID
+     Byte 0 = number of following bytes
+     Byte 1 = service 01 (current data)
+     Byte 2 = requested PID
   */
 
   frame.data.byte[0] = 0x02;
-
   frame.data.byte[1] = 0x01;
-
   frame.data.byte[2] = pid;
-
-
-  /*
-     Remaining bytes are zero.
-  */
 
   frame.data.byte[3] = 0x00;
   frame.data.byte[4] = 0x00;
@@ -361,17 +367,13 @@ void requestPID(
 
 
   /*
-     Send CAN frame.
+     Send request.
   */
 
-  CAN0.sendFrame(
-    frame
-  );
+  CAN0.sendFrame(frame);
 
 
-  Serial.print(
-    "OBD request PID 0x"
-  );
+  Serial.print("OBD Request: 01 ");
 
   if (pid < 0x10) {
 
@@ -380,40 +382,30 @@ void requestPID(
 
   Serial.println(
     pid,
-    HEX
-  );
+    HEX);
 }
 
 
 /* =========================================================
-   CHECK OBD RESPONSE
+   CHECK IF FRAME IS AN OBD RESPONSE
    ========================================================= */
 
-bool isOBDResponse(
-  CAN_FRAME &frame
-) {
+bool isOBDResponse(CAN_FRAME &frame) {
 
   /*
-     We only care about the standard
-     diagnostic response IDs.
+     Standard ECU OBD response IDs
+     are 0x7E8 through 0x7EF.
   */
 
   if (
-    frame.id < OBD_RESPONSE_MIN ||
-    frame.id > OBD_RESPONSE_MAX
-  ) {
+    frame.id < OBD_RESPONSE_MIN || frame.id > OBD_RESPONSE_MAX) {
 
     return false;
   }
 
 
   /*
-     We need at least 4 bytes:
-
-     Byte 0 = length
-     Byte 1 = service
-     Byte 2 = PID
-     Byte 3 = data
+     At least four bytes are needed.
   */
 
   if (frame.length < 4) {
@@ -423,8 +415,8 @@ bool isOBDResponse(
 
 
   /*
-     Positive response to service 01
-     is service 41.
+     Positive response to Service 01
+     is Service 41.
   */
 
   if (frame.data.byte[1] != 0x41) {
@@ -441,9 +433,7 @@ bool isOBDResponse(
    PROCESS OBD RESPONSE
    ========================================================= */
 
-void processOBDResponse(
-  CAN_FRAME &frame
-) {
+void processOBDResponse(CAN_FRAME &frame) {
 
   if (!isOBDResponse(frame)) {
 
@@ -456,10 +446,14 @@ void processOBDResponse(
 
 
   /*
-     ==============================
+     =====================================================
      COOLANT TEMPERATURE
      PID 05
-     ==============================
+
+     Temperature = A - 40
+
+     Unit: C
+     =====================================================
   */
 
   if (pid == PID_COOLANT) {
@@ -467,35 +461,42 @@ void processOBDResponse(
     uint8_t A =
       frame.data.byte[3];
 
-    sensorData.coolant =
+
+    coolant =
       (float)A - 40.0;
 
+
     coolantValid = true;
+    coolantUpdated = millis();
+    obdResponseCount++;
 
+
+    Serial.print("Coolant: ");
 
     Serial.print(
-      "COOLANT: "
-    );
+      coolant,
+      1);
 
-    Serial.print(
-      sensorData.coolant,
-      1
-    );
-
-    Serial.println(
-      " C"
-    );
+    Serial.println(" C");
   }
 
 
   /*
-     ==============================
+     =====================================================
      ENGINE RPM
      PID 0C
-     ==============================
+
+     RPM = ((A * 256) + B) / 4
+     =====================================================
   */
 
   else if (pid == PID_RPM) {
+
+    if (frame.length < 5) {
+
+      return;
+    }
+
 
     uint8_t A =
       frame.data.byte[3];
@@ -505,33 +506,35 @@ void processOBDResponse(
 
 
     uint16_t raw =
-      ((uint16_t)A << 8) |
-      B;
+      ((uint16_t)A << 8) | B;
 
 
-    sensorData.rpm =
+    rpm =
       raw / 4.0;
 
 
     rpmValid = true;
+    rpmUpdated = millis();
+    obdResponseCount++;
 
 
-    Serial.print(
-      "RPM: "
-    );
+    Serial.print("RPM: ");
 
     Serial.println(
-      sensorData.rpm,
-      0
-    );
+      rpm,
+      0);
   }
 
 
   /*
-     ==============================
+     =====================================================
      VEHICLE SPEED
      PID 0D
-     ==============================
+
+     Speed = A
+
+     Unit: km/h
+     =====================================================
   */
 
   else if (pid == PID_SPEED) {
@@ -540,36 +543,43 @@ void processOBDResponse(
       frame.data.byte[3];
 
 
-    sensorData.speed =
+    speed =
       (float)A;
 
 
     speedValid = true;
+    speedUpdated = millis();
+    obdResponseCount++;
 
+
+    Serial.print("Speed: ");
 
     Serial.print(
-      "SPEED: "
-    );
+      speed,
+      0);
 
-    Serial.print(
-      sensorData.speed,
-      0
-    );
-
-    Serial.println(
-      " km/h"
-    );
+    Serial.println(" km/h");
   }
 
 
   /*
-     ==============================
+     =====================================================
      MASS AIR FLOW
      PID 10
-     ==============================
+
+     MAF = ((A * 256) + B) / 100
+
+     Unit: g/s
+     =====================================================
   */
 
   else if (pid == PID_MAF) {
+
+    if (frame.length < 5) {
+
+      return;
+    }
+
 
     uint8_t A =
       frame.data.byte[3];
@@ -579,109 +589,88 @@ void processOBDResponse(
 
 
     uint16_t raw =
-      ((uint16_t)A << 8) |
-      B;
+      ((uint16_t)A << 8) | B;
 
 
-    sensorData.maf =
+    maf =
       raw / 100.0;
 
 
     mafValid = true;
+    mafUpdated = millis();
+    obdResponseCount++;
 
+
+    Serial.print("MAF: ");
 
     Serial.print(
-      "MAF: "
-    );
+      maf,
+      2);
 
-    Serial.print(
-      sensorData.maf,
-      2
-    );
-
-    Serial.println(
-      " g/s"
-    );
+    Serial.println(" g/s");
 
 
-    /*
-       Once MAF has been received,
-       we have a complete sensor set.
-
-       Send it to the display.
-    */
-
-    if (
-      mafValid &&
-      speedValid &&
-      rpmValid &&
-      coolantValid
-    ) {
-
-      sendSensorData();
-    }
+    // Transmission is handled periodically in loop(), not here.
+    // This avoids sending incomplete or stale groups of values.
   }
 }
 
 
 /* =========================================================
-   PRINT RAW CAN FRAME
+   PRINT ALL REAL CAN VALUES
    ========================================================= */
 
-void printCANFrame(
-  CAN_FRAME &frame
-) {
+void printAllValues() {
+
+  Serial.println();
+  Serial.println(
+    "================================");
+
+  Serial.println(
+    "REAL OBD-II VALUES");
+
+  Serial.println(
+    "================================");
+
+
+  Serial.print("Coolant: ");
 
   Serial.print(
-    "CAN 0x"
-  );
+    coolant,
+    1);
+
+  Serial.println(" C");
+
+
+  Serial.print("RPM:     ");
 
   Serial.print(
-    frame.id,
-    HEX
-  );
+    rpm,
+    0);
+
+  Serial.println(" rpm");
+
+
+  Serial.print("Speed:   ");
 
   Serial.print(
-    " ["
-  );
+    speed,
+    0);
+
+  Serial.println(" km/h");
+
+
+  Serial.print("MAF:     ");
 
   Serial.print(
-    frame.length
-  );
+    maf,
+    2);
 
-  Serial.print(
-    "] "
-  );
+  Serial.println(" g/s");
 
 
-  for (
-    int i = 0;
-    i < frame.length;
-    i++
-  ) {
-
-    if (i > 0) {
-
-      Serial.print(
-        ":"
-      );
-    }
-
-    if (
-      frame.data.byte[i] < 0x10
-    ) {
-
-      Serial.print(
-        "0"
-      );
-    }
-
-    Serial.print(
-      frame.data.byte[i],
-      HEX
-    );
-  }
-
+  Serial.println(
+    "================================");
 
   Serial.println();
 }
@@ -694,88 +683,69 @@ void printCANFrame(
 void setup() {
 
   Serial.begin(
-    115200
-  );
+    115200);
 
   delay(
-    1000
-  );
+    1000);
 
 
   Serial.println();
 
   Serial.println(
-    "================================"
-  );
+    "================================");
 
   Serial.println(
-    "ESP32 OBD-II -> ESP-NOW"
-  );
+    "ESP32 OBD-II -> ESP-NOW");
 
   Serial.println(
-    "MrDIY CAN Shield"
-  );
+    "MrDIY CAN Shield");
 
   Serial.println(
-    "================================"
-  );
+    "================================");
+
+  Serial.println();
 
 
   /*
-     Initialize sensor values.
+     =====================================================
+     WIFI / ESP-NOW INITIALIZATION
+     =====================================================
   */
 
-  sensorData.maf = 0.0;
+  Serial.println(
+    "Initializing ESP-NOW...");
 
-  sensorData.speed = 0.0;
-
-  sensorData.rpm = 0.0;
-
-  sensorData.coolant = 0.0;
-
-
-  /*
-     ==============================
-     WIFI / ESP-NOW
-     ==============================
-  */
 
   WiFi.mode(
-    WIFI_STA
-  );
+    WIFI_STA);
 
 
   /*
-     Force ESP-NOW to channel 1.
+     Force WiFi / ESP-NOW onto the same channel
+     as the TFT receiver.
   */
 
   WiFi.setChannel(
     ESPNOW_CHANNEL,
-    WIFI_SECOND_CHAN_NONE
-  );
+    WIFI_SECOND_CHAN_NONE);
 
 
   delay(
-    100
-  );
+    100);
 
 
   Serial.print(
-    "Sender MAC: "
-  );
+    "Sender MAC: ");
 
   Serial.println(
-    WiFi.macAddress()
-  );
+    WiFi.macAddress());
 
 
   Serial.print(
-    "ESP-NOW channel: "
-  );
+    "ESP-NOW channel: ");
 
   Serial.println(
-    ESPNOW_CHANNEL
-  );
+    ESPNOW_CHANNEL);
 
 
   /*
@@ -783,42 +753,38 @@ void setup() {
   */
 
   if (
-    esp_now_init() != ESP_OK
-  ) {
+    esp_now_init() != ESP_OK) {
 
     Serial.println(
-      "ESP-NOW initialization FAILED!"
-    );
+      "ESP-NOW initialization FAILED!");
 
     while (true) {
 
       delay(
-        1000
-      );
+        1000);
     }
   }
 
 
   /*
-     Register ESP-NOW callback.
+     Register send callback.
   */
 
   esp_now_register_send_cb(
-    onDataSent
-  );
+    onDataSent);
 
 
   /*
-     Add TFT receiver.
+     Add TFT receiver as ESP-NOW peer.
   */
 
   esp_now_peer_info_t peerInfo = {};
 
+
   memcpy(
     peerInfo.peer_addr,
     receiverMac,
-    6
-  );
+    6);
 
 
   peerInfo.channel =
@@ -835,110 +801,85 @@ void setup() {
 
   esp_err_t peerResult =
     esp_now_add_peer(
-      &peerInfo
-    );
+      &peerInfo);
 
 
   if (
-    peerResult != ESP_OK
-  ) {
+    peerResult != ESP_OK) {
 
     Serial.print(
-      "Failed to add ESP-NOW peer: "
-    );
+      "Failed to add ESP-NOW peer: ");
 
     Serial.println(
-      peerResult
-    );
+      peerResult);
+
 
     while (true) {
 
       delay(
-        1000
-      );
+        1000);
     }
   }
 
 
   Serial.println(
-    "ESP-NOW initialized."
-  );
-
-
-  /*
-     ==============================
-     CAN
-     ==============================
-  */
+    "ESP-NOW initialized.");
 
   Serial.println();
 
-  Serial.println(
-    "Initializing CAN..."
-  );
 
+  Serial.println("ESP-NOW LIVE CAN MODE ACTIVE (NO TEST DATA)");
+  Serial.println("Transmit every 500 ms when ALL PIDs are fresh.");
+  Serial.println("Freshness timeout: 3000 ms per PID.");
+  Serial.println();
 
   /*
-     MrDIY shield v1.3+:
-
-     RX = GPIO4
-     TX = GPIO5
+     =====================================================
+     CAN INITIALIZATION
+     =====================================================
   */
+
+  Serial.println(
+    "Initializing CAN...");
+
 
   CAN0.setCANPins(
     CAN_RX_PIN,
-    CAN_TX_PIN
-  );
+    CAN_TX_PIN);
 
-
-  /*
-     Standard OBD-II CAN speed.
-  */
 
   CAN0.begin(
-    CAN_SPEED
-  );
+    CAN_SPEED);
 
-
-  /*
-     Allow all CAN frames.
-  */
 
   CAN0.watchFor();
 
 
   Serial.println(
-    "CAN initialized at 500 kbit/s."
-  );
+    "CAN initialized at 500 kbit/s.");
 
+  Serial.println();
+
+
+  Serial.println(
+    "Requested OBD-II PIDs:");
+
+  Serial.println(
+    "01 05 = Coolant Temperature");
+
+  Serial.println(
+    "01 0C = Engine RPM");
+
+  Serial.println(
+    "01 0D = Vehicle Speed");
+
+  Serial.println(
+    "01 10 = Mass Air Flow");
 
   Serial.println();
 
   Serial.println(
-    "Waiting for OBD-II data..."
-  );
-
-  Serial.println();
-
-  Serial.println(
-    "Requested PIDs:"
-  );
-
-  Serial.println(
-    "01 05 = Coolant"
-  );
-
-  Serial.println(
-    "01 0C = RPM"
-  );
-
-  Serial.println(
-    "01 0D = Speed"
-  );
-
-  Serial.println(
-    "01 10 = MAF"
-  );
+    "Waiting for ECU...");
 
   Serial.println();
 }
@@ -951,29 +892,26 @@ void setup() {
 void loop() {
 
   /*
-     Read incoming CAN frames.
+     =====================================================
+     READ CAN FRAMES
+     =====================================================
   */
 
   CAN_FRAME canMessage;
 
 
   while (
-    CAN0.read(canMessage)
-  ) {
-
-    /*
-       Process OBD response.
-    */
+    CAN0.read(canMessage)) {
 
     processOBDResponse(
-      canMessage
-    );
+      canMessage);
   }
 
 
   /*
-     Request the next PID every
-     100 milliseconds.
+     =====================================================
+     REQUEST NEXT PID
+     =====================================================
   */
 
   unsigned long now =
@@ -981,38 +919,69 @@ void loop() {
 
 
   if (
-    now - lastOBDRequest >=
-    OBD_REQUEST_INTERVAL
-  ) {
+    now - lastOBDRequest >= OBD_REQUEST_INTERVAL) {
 
     lastOBDRequest =
       now;
 
 
-    /*
-       Request current PID.
-    */
+    uint8_t requestedPID =
+      pidList[currentPIDIndex];
+
 
     requestPID(
-      pidList[currentPIDIndex]
-    );
+      requestedPID);
 
-
-    /*
-       Move to next PID.
-    */
 
     currentPIDIndex++;
 
+
+    /*
+       After all four requests have been made,
+       print the REAL CAN values.
+
+       Note that ESP-NOW test mode does NOT affect
+       these values.
+    */
+
     if (
-      currentPIDIndex >=
-      PID_COUNT
-    ) {
+      currentPIDIndex >= PID_COUNT) {
 
       currentPIDIndex = 0;
+
+      printAllValues();
     }
   }
 
+
+  /* =========================================================
+     LIVE SEND: require every PID to have arrived recently.
+     Keep reporting why transmission is suppressed.
+     ========================================================= */
+  if (now - lastESPNowSend >= ESPNOW_SEND_INTERVAL) {
+    lastESPNowSend = now;
+    bool allValid = coolantValid && rpmValid && speedValid && mafValid;
+    bool allFresh = allValid &&
+      (now - coolantUpdated <= OBD_STALE_TIMEOUT) &&
+      (now - rpmUpdated <= OBD_STALE_TIMEOUT) &&
+      (now - speedUpdated <= OBD_STALE_TIMEOUT) &&
+      (now - mafUpdated <= OBD_STALE_TIMEOUT);
+
+    if (allFresh) {
+      sendSensorData();
+    }
+  }
+
+  if (now - lastStatus >= STATUS_INTERVAL) {
+    lastStatus = now;
+    Serial.println("[CAN STATUS] ECU OBD responses received: " + String(obdResponseCount));
+    Serial.printf("[CAN STATUS] Coolant: %s | RPM: %s | Speed: %s | MAF: %s\n",
+      !coolantValid ? "MISSING" : ((now - coolantUpdated > OBD_STALE_TIMEOUT) ? "STALE" : "OK"),
+      !rpmValid ? "MISSING" : ((now - rpmUpdated > OBD_STALE_TIMEOUT) ? "STALE" : "OK"),
+      !speedValid ? "MISSING" : ((now - speedUpdated > OBD_STALE_TIMEOUT) ? "STALE" : "OK"),
+      !mafValid ? "MISSING" : ((now - mafUpdated > OBD_STALE_TIMEOUT) ? "STALE" : "OK"));
+    Serial.println("[ESP-NOW STATUS] No packet sent unless all four PIDs are fresh.");
+  }
 
   delay(1);
 }
