@@ -52,6 +52,11 @@ volatile float rpm = 0.0;
 volatile float temp = 0.0;
 volatile float fuel = 0.0;
 
+// L/100 km cannot be calculated while stationary.
+// Display L/h below 1 km/h instead.
+volatile bool fuelDisplayStationary = true;
+const float MIN_SPEED_FOR_L_PER_100KM = 1.0f;
+
 /* =========================
    ANIMATED VALUES
    ========================= */
@@ -318,160 +323,52 @@ void setupESPNow() {
 
 void calculateFuelConsumption() {
 
-  /*
-     We need MAF samples.
-  */
-
   if (mafSampleCount == 0) {
-
+    Serial.println("[FUEL] No MAF samples yet - waiting for ESP-NOW data");
     return;
   }
 
-  /*
-     Calculate average MAF over the
-     previous five-second period.
-
-     MAF = grams of air / second
-  */
-
-  float averageMAF =
-    mafSum / (float)mafSampleCount;
-
-  /*
-     Calculate average vehicle speed.
-
-     Speed is sampled at approximately
-     the same interval as MAF.
-  */
-
-  float averageSpeed = 0.0;
-
-  if (speedSampleCount > 0) {
-
-    averageSpeed =
-      speedSampleCount > 0
-      ? distanceSumKm /
-        (FUEL_CALC_INTERVAL / 3600000.0)
-      : 0.0;
-  }
-
-  /*
-     Save the distance before resetting
-     the accumulation variables.
-  */
-
+  // Time and distance come from the actual accumulation interval.
+  // MAF is the live OBD PID 0x10 value in g/s.
+  float averageMAF = mafSum / (float)mafSampleCount;
   float distanceKm = distanceSumKm;
+  unsigned long elapsedMs = millis() - lastFuelCalculation;
+  if (elapsedMs == 0) elapsedMs = FUEL_CALC_INTERVAL;
+  float elapsedHours = elapsedMs / 3600000.0f;
+  float averageSpeed = distanceKm / elapsedHours;
 
-  /*
-     Reset the averaging values
-     for the next five-second period.
-  */
+  // Gasoline estimate: MAF / air-to-fuel ratio / fuel density.
+  // 0.745 kg/L = 745 g/L.
+  float fuelLitresPerHour =
+    (averageMAF / AIR_FUEL_RATIO) / (FUEL_DENSITY_KG_PER_L * 1000.0f) * 3600.0f;
+  float fuelLitres = fuelLitresPerHour * elapsedHours;
 
-  mafSum = 0.0;
-  mafSampleCount = 0;
+  // IMPORTANT: At zero speed L/100 km is undefined. Show L/h instead.
+  fuelDisplayStationary = averageSpeed < MIN_SPEED_FOR_L_PER_100KM;
 
-  distanceSumKm = 0.0;
-  speedSampleCount = 0;
-
-  /*
-     Convert air mass to fuel mass.
-
-     Example:
-
-       5 g/s air
-       / 14.7
-       = 0.340 g/s fuel
-  */
-
-  float fuelMassPerSecond =
-    averageMAF / AIR_FUEL_RATIO;
-
-  /*
-     Convert grams to kilograms.
-  */
-
-  float fuelMassKgPerSecond =
-    fuelMassPerSecond / 1000.0;
-
-  /*
-     Convert fuel mass to litres.
-
-     litres =
-       kilograms / kg-per-litre
-  */
-
-  float fuelLitresPerSecond =
-    fuelMassKgPerSecond /
-    FUEL_DENSITY_KG_PER_L;
-
-  /*
-     Calculate fuel used during the
-     five-second measurement period.
-  */
-
-  float fuelLitres =
-    fuelLitresPerSecond *
-    (FUEL_CALC_INTERVAL / 1000.0);
-
-  /*
-     Calculate L/100 km.
-
-     If the car is stationary there is
-     no meaningful L/100 km value.
-
-     In that case we keep the previous
-     fuel value instead of producing
-     infinity or a huge number.
-  */
-
-  if (distanceKm > 0.0001) {
-
-    fuel =
-      (fuelLitres / distanceKm) * 100.0;
+  if (fuelDisplayStationary) {
+    fuel = fuelLitresPerHour;
+  } else {
+    fuel = (fuelLitres / distanceKm) * 100.0f;
   }
 
-  /*
-     Debug output.
-  */
+  mafSum = 0.0f;
+  mafSampleCount = 0;
+  distanceSumKm = 0.0f;
+  speedSampleCount = 0;
 
   Serial.println();
   Serial.println("------------------------------");
-
-  Serial.print("Average MAF: ");
-  Serial.print(averageMAF, 2);
-  Serial.println(" g/s");
-
-  Serial.print("Average speed: ");
-  Serial.print(averageSpeed, 1);
-  Serial.println(" km/h");
-
-  Serial.print("Distance: ");
-  Serial.print(distanceKm, 4);
-  Serial.println(" km");
-
-  Serial.print("Fuel used: ");
-  Serial.print(fuelLitres, 4);
-  Serial.println(" L");
-
-  if (distanceKm > 0.0001) {
-
-    Serial.print("Consumption: ");
-    Serial.print(fuel, 2);
-    Serial.println(" L/100km");
-
-  } else {
-
-    Serial.println("Consumption: vehicle stationary");
-  }
-
-  Serial.print("Coolant: ");
-  Serial.print(tempTarget, 1);
-  Serial.println(" C");
-
-  Serial.print("RPM: ");
-  Serial.print(rpmTarget, 0);
-  Serial.println(" rpm");
-
+  Serial.println("[FUEL] LIVE CAN/OBD CALCULATION");
+  Serial.print("Average MAF: "); Serial.print(averageMAF, 2); Serial.println(" g/s");
+  Serial.print("Average speed: "); Serial.print(averageSpeed, 1); Serial.println(" km/h");
+  Serial.print("Distance: "); Serial.print(distanceKm, 5); Serial.println(" km");
+  Serial.print("Fuel used: "); Serial.print(fuelLitres, 5); Serial.println(" L");
+  Serial.print("Fuel rate: "); Serial.print(fuelLitresPerHour, 2); Serial.println(" L/h");
+  Serial.print("DISPLAY: "); Serial.print(fuel, 2);
+  Serial.println(fuelDisplayStationary ? " L/h (stationary)" : " L/100km (moving)");
+  Serial.print("Coolant: "); Serial.print(tempTarget, 1); Serial.println(" C");
+  Serial.print("RPM: "); Serial.print(rpmTarget, 0); Serial.println(" rpm");
   Serial.println("------------------------------");
 }
 
@@ -646,7 +543,7 @@ void drawUI() {
   */
 
   spr.drawString(
-    String(fuelA, 1) + " L/100km",
+    String(fuelA, 1) + (fuelDisplayStationary ? " L/h" : " L/100km"),
     cx,
     cy + 40
   );
@@ -866,7 +763,7 @@ void uiFlicker() {
     );
 
     spr.drawString(
-      String(fuelA, 1) + " L/100km",
+      String(fuelA, 1) + (fuelDisplayStationary ? " L/h" : " L/100km"),
       cx,
       cy + 40
     );
@@ -1035,7 +932,9 @@ void runStartAnimation() {
 
   float startupConsumption = 0.0;
 
-  if (speedTarget > 0.1) {
+  fuelDisplayStationary = speedTarget < MIN_SPEED_FOR_L_PER_100KM;
+
+  if (speedTarget > 0.1 && !fuelDisplayStationary) {
 
     /*
        Fuel mass per second.
@@ -1077,6 +976,13 @@ void runStartAnimation() {
       ) * 100.0;
   }
 
+  // When stopped, convert the current MAF directly to L/h for startup.
+  if (fuelDisplayStationary) {
+    startupConsumption =
+      (mafTarget / AIR_FUEL_RATIO) /
+      (FUEL_DENSITY_KG_PER_L * 1000.0f) * 3600.0f;
+  }
+
   /*
      Animate temporary fuel value.
   */
@@ -1102,8 +1008,8 @@ void dataTask(void *pv) {
      Start the five-second timer.
   */
 
-  lastFuelCalculation =
-    millis();
+  lastFuelCalculation = millis();
+  unsigned long previousSampleMillis = lastFuelCalculation;
 
   while (true) {
 
@@ -1153,15 +1059,15 @@ void dataTask(void *pv) {
              speed / 3600 × seconds
       */
 
-      const float SAMPLE_TIME_SECONDS =
-        0.020;
-
-      distanceSumKm +=
-        speedTarget *
-        (SAMPLE_TIME_SECONDS / 3600.0);
+      // Use elapsed time instead of assuming a perfect 20 ms task rate.
+      unsigned long sampleNow = millis();
+      float sampleSeconds = (sampleNow - previousSampleMillis) / 1000.0f;
+      distanceSumKm += speedTarget * (sampleSeconds / 3600.0f);
 
       speedSampleCount++;
     }
+
+    previousSampleMillis = millis();
 
     /*
        Check the five-second timer.
@@ -1175,10 +1081,8 @@ void dataTask(void *pv) {
       FUEL_CALC_INTERVAL
     ) {
 
-      lastFuelCalculation =
-        now;
-
       calculateFuelConsumption();
+      lastFuelCalculation = now;
     }
 
     /*
