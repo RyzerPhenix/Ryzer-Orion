@@ -1,6 +1,7 @@
 #include <esp32_can.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <esp_sleep.h>
 
 /* =========================================================
    SETTINGS
@@ -28,6 +29,76 @@ uint8_t receiverMac[] = {
   0x10
 };
 
+
+/* =========================================================
+   BATTERY VOLTAGE / AUTOMATIC DEEP SLEEP
+   MrDIY v1.3b: GPIO32 <- R11 1M / R12 270k divider.
+   These are STARTING thresholds, NOT verified ignition states.
+   Measure against a multimeter before relying on this feature.
+   ========================================================= */
+#define BATTERY_ADC_PIN 32
+const float BATTERY_DIVIDER_MULTIPLIER = (1000000.0f + 270000.0f) / 270000.0f;
+const float BATTERY_CALIBRATION = 1.000f; // Adjust against multimeter
+const float ENGINE_RUNNING_VOLTAGE = 13.40f; // Charging detected
+const float ENGINE_OFF_VOLTAGE = 13.00f;     // Sustained low voltage -> sleep
+const unsigned long VOLTAGE_CHECK_INTERVAL_MS = 2000;
+const unsigned long LOW_VOLTAGE_DELAY_MS = 90000;
+const uint64_t SLEEP_INTERVAL_US = 30ULL * 1000000ULL;
+
+unsigned long lastVoltageCheck = 0;
+unsigned long lowVoltageSince = 0;
+bool haveLowVoltageTimer = false;
+bool chargingDetected = false;
+
+float readBatteryVoltage() {
+  // ADC1 works while the ESP32 WiFi radio is running.
+  // Use calibrated Arduino core millivolt conversion; still verify externally.
+  uint32_t totalMv = 0;
+  for (int i = 0; i < 16; ++i) {
+    totalMv += analogReadMilliVolts(BATTERY_ADC_PIN);
+    delay(2);
+  }
+  float adcVoltage = (totalMv / 16.0f) / 1000.0f;
+  return adcVoltage * BATTERY_DIVIDER_MULTIPLIER * BATTERY_CALIBRATION;
+}
+
+void enterBatterySleep(float measuredVoltage) {
+  Serial.printf("[SLEEP] Battery %.2f V. Sleeping for 30 seconds.\n", measuredVoltage);
+  Serial.println("[SLEEP] ESP-NOW and CAN polling stop until timer wake.");
+  Serial.flush();
+  esp_now_deinit();
+  WiFi.mode(WIFI_OFF);
+  esp_sleep_enable_timer_wakeup(SLEEP_INTERVAL_US);
+  esp_deep_sleep_start();
+}
+
+void checkBatteryDuringOperation(unsigned long now) {
+  if (now - lastVoltageCheck < VOLTAGE_CHECK_INTERVAL_MS) return;
+  lastVoltageCheck = now;
+  float v = readBatteryVoltage();
+  Serial.printf("[BATTERY] %.2f V | Charging threshold %.2f V | Sleep threshold %.2f V\n",
+                v, ENGINE_RUNNING_VOLTAGE, ENGINE_OFF_VOLTAGE);
+
+  // Hysteresis: voltages in the middle keep the previous state/timer.
+  if (v >= ENGINE_RUNNING_VOLTAGE) {
+    chargingDetected = true;
+    haveLowVoltageTimer = false;
+    Serial.println("[POWER] Charging voltage detected. Stay awake.");
+  } else if (v < ENGINE_OFF_VOLTAGE) {
+    if (!haveLowVoltageTimer) {
+      lowVoltageSince = now;
+      haveLowVoltageTimer = true;
+      Serial.println("[POWER] Low battery voltage. Starting 90-second countdown.");
+    } else {
+      unsigned long elapsed = now - lowVoltageSince;
+      Serial.printf("[POWER] Low voltage for %lu / %lu seconds.\n",
+                    elapsed / 1000UL, LOW_VOLTAGE_DELAY_MS / 1000UL);
+      if (elapsed >= LOW_VOLTAGE_DELAY_MS) enterBatterySleep(v);
+    }
+  } else {
+    Serial.println("[POWER] Between thresholds; retaining previous state.");
+  }
+}
 
 /* LIVE CAN/OBD MODE: no synthetic/test readings are transmitted. */
 
@@ -685,10 +756,33 @@ void setup() {
   Serial.begin(
     115200);
 
-  delay(
-    1000);
+  delay(2000);
 
-
+  // Initialize voltage measurement BEFORE initializing WiFi and CAN.
+  pinMode(BATTERY_ADC_PIN, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+  float bootVoltage = readBatteryVoltage();
+  Serial.printf("[BATTERY] Boot voltage: %.2f V (ADC GPIO32)\n", bootVoltage);
+  esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
+  if (wakeReason == ESP_SLEEP_WAKEUP_TIMER) {
+    Serial.println("[WAKE] Timer wakeup. Checking battery before WiFi/CAN startup.");
+    if (bootVoltage < ENGINE_RUNNING_VOLTAGE) {
+      Serial.println("[WAKE] No charging voltage detected; back to sleep.");
+      Serial.println("[WAKE] Note: ignition ON without alternator charging is not detectable.");
+      Serial.flush();
+      esp_sleep_enable_timer_wakeup(SLEEP_INTERVAL_US);
+      esp_deep_sleep_start();
+    }
+    Serial.println("[WAKE] Charging voltage detected. Starting full operation.");
+  } else {
+    Serial.println("[BOOT] Power-on/reset. Starting normal operation with 90-second low-voltage grace period.");
+  }
+  lastVoltageCheck = millis();
+  if (bootVoltage < ENGINE_OFF_VOLTAGE) {
+    lowVoltageSince = millis();
+    haveLowVoltageTimer = true;
+  }
   Serial.println();
 
   Serial.println(
@@ -917,6 +1011,7 @@ void loop() {
   unsigned long now =
     millis();
 
+  checkBatteryDuringOperation(now);
 
   if (
     now - lastOBDRequest >= OBD_REQUEST_INTERVAL) {
