@@ -102,6 +102,8 @@ volatile float tempTarget = 0.0;
 */
 
 volatile bool mafReceived = false;
+volatile unsigned long lastPacketMillis = 0;
+volatile unsigned long receivedPackets = 0;
 
 /* =========================
    FUEL CONSUMPTION SETTINGS
@@ -204,6 +206,7 @@ void onDataRecv(const esp_now_recv_info_t *info,
      values for the display.
   */
 
+  // Sender transmits real decoded ECU values; do not manufacture values.
   mafTarget = incoming.maf;
   speedTarget = incoming.speed;
   rpmTarget = incoming.rpm;
@@ -224,6 +227,8 @@ void onDataRecv(const esp_now_recv_info_t *info,
   */
 
   mafReceived = true;
+  lastPacketMillis = millis();
+  receivedPackets++;
 
   /*
      Debug output.
@@ -258,6 +263,7 @@ void setupESPNow() {
   */
 
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
 
   /*
      Force the receiver to the same
@@ -280,7 +286,7 @@ void setupESPNow() {
   Serial.println(WiFi.macAddress());
 
   Serial.print("WiFi channel: ");
-  Serial.println(ESPNOW_CHANNEL);
+  Serial.println(WiFi.channel());
 
   /*
      Initialize ESP-NOW.
@@ -302,7 +308,7 @@ void setupESPNow() {
   esp_now_register_recv_cb(onDataRecv);
 
   Serial.println("ESP-NOW receiver ready");
-  Serial.println("Waiting for OBD data...");
+  Serial.println("Waiting for LIVE CAN/OBD data from sender...");
   Serial.println();
 }
 
@@ -1275,6 +1281,9 @@ void renderTask(void *pv) {
 void setup() {
 
   Serial.begin(115200);
+  delay(2000); // Allow Serial Monitor to attach after reset
+  Serial.println("\n=== TFT DISPLAY RECEIVER BOOT ===");
+  Serial.println("Initializing TFT...");
 
   /*
      TFT
@@ -1290,10 +1299,9 @@ void setup() {
      Main UI sprite
   */
 
-  spr.createSprite(
-    240,
-    240
-  );
+  if (spr.createSprite(240, 240) == nullptr) {
+    Serial.println("ERROR: main sprite allocation failed");
+  }
 
   /*
      Boot logo sprite
@@ -1301,16 +1309,16 @@ void setup() {
 
   logoSpr.setColorDepth(16);
 
-  logoSpr.createSprite(
-    256,
-    144
-  );
+  if (logoSpr.createSprite(256, 144) == nullptr) {
+    Serial.println("ERROR: logo sprite allocation failed");
+  }
 
   /*
      ESP-NOW
   */
 
   setupESPNow();
+  Serial.println("ESP-NOW setup complete; starting tasks...");
 
   /*
      Render task
@@ -1346,13 +1354,23 @@ void setup() {
    ========================= */
 
 void loop() {
-
-  /*
-     Everything is handled by
-     the FreeRTOS tasks.
-  */
-
-  vTaskDelay(
-    1000 / portTICK_PERIOD_MS
-  );
+  // Receiver heartbeat: confirms that the ESP32 is still running.
+  static unsigned long lastStatus = 0;
+  unsigned long now = millis();
+  if (now - lastStatus >= 5000) {
+    lastStatus = now;
+    Serial.print("[RECEIVER] Alive | Packets: ");
+    Serial.print(receivedPackets);
+    Serial.print(" | Channel: ");
+    Serial.print(WiFi.channel());
+    if (!mafReceived) {
+      Serial.println(" | Waiting for first ESP-NOW packet...");
+    } else {
+      Serial.print(" | Last packet ");
+      unsigned long age = now - lastPacketMillis;
+      Serial.print(age);
+      Serial.println(age > 3000 ? " ms ago | WARNING: ESP-NOW DATA STALE" : " ms ago | LINK OK");
+    }
+  }
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
